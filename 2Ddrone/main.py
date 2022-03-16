@@ -425,8 +425,8 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
         # init_func=init_my_quiver,
         interval=dT * 1e4)
 
-    # writer = animation.PillowWriter(fps=100)
-    # ani.save('2Ddrone/animation.gif', writer=writer)
+    writer = animation.PillowWriter(fps=100)
+    ani.save('2Ddrone/animation.gif', writer=writer)
 
     show()
 
