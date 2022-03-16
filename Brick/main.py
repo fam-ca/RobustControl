@@ -6,7 +6,7 @@ from qpsolvers import solve_qp
 import mpl_toolkits.mplot3d.axes3d as p3
 import matplotlib.animation as animation
 from matrices import *
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 def cross_product(p, q):
@@ -56,7 +56,6 @@ def B():
              0,0.3,0.4,0.2]  # quaternion
     rc = state[:3]
     wc = state[3:6]
-    # print('curr state ', state)
     l = system_params['length']
     w = system_params['width']
 
@@ -133,7 +132,7 @@ def system(state, t, u):
     m, g = system_params['m'], system_params['g']
     # dp, ddp - velocity and acceleration
     # q - quaternion
-    # w - orientation
+    # w - angular velocity
 
     p, dp, q, w = state[:3], state[3:6], state[6:10], state[10:13]
 
@@ -222,7 +221,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     xlabel(r'Time $t$ (s)')
     legend(loc='lower right')
     title('Quaternion')
-    savefig('Brick/quat.png')
+    savefig('Brick/quaternion.png')
 
     figure()
     text = [r'$\phi$', r'$\theta$', r'$\psi$']
@@ -238,7 +237,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     savefig('Brick/orientation.png')
 
     figure()
-    text = ['$pos_x$', '$pos_y$', '$pos_z$']
+    text = ['$x$', '$y$', '$z$']
     for i in range(3):
         plot(t, np.array(states)[:,i], linewidth=2.0, label=str(text[i]))
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
@@ -251,7 +250,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     savefig('Brick/position.png')
 
     figure()
-    text = ['$vel_x$', '$vel_y$', '$vel_z$']
+    text = ['$v_x$', '$v_y$', '$v_z$']
     for i in range(3):
         plot(t, np.array(states)[:,i+3], linewidth=2.0, label=str(text[i]))
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
@@ -294,10 +293,9 @@ width = 0.4
 height = 0.1
 m = 1.3
 I = 0.05
-Ixx = Iyy = 0.5#6.5 * 10**(-4)
-Izz = 0.4 #1.2*10**(-3)
+Ixx = Iyy = 0.5  # 6.5 * 10**(-4)
+Izz = 0.4  # 1.2*10**(-3)
 g = 9.81
-k = 0.01
 
 K1 = np.diag([3, 3, 3])
 K2 = np.diag([5, 5, 5])
@@ -313,7 +311,6 @@ system_params = {'length': length,
                  'Iyy': Iyy,
                  'Izz': Izz,
                  'g': g,
-                 'k': k # thrust coefficient
                  }
 
 control_params = {'K1': K1, 'K2': K2,
@@ -340,12 +337,6 @@ states, angles = simulate_system(state_init=x0, frequency=freq, t_0=t0, t_final=
 
 def get_position(states):
     pos = np.vstack([states[::10, 0], states[::10, 1], states[::10, 2]])
-    # wf - wireframe of a brick
-    pos_c = pos[:, 0] # x, y, z coord of CoM
-    # pos_1 =
-    # pos_2 =
-    # pos_3 =
-    # pos_4 =
     return pos
 
 
@@ -431,94 +422,6 @@ ani = animation.FuncAnimation(fig, animate, frames=np.shape(data)[1],
 writer = animation.PillowWriter(fps=100)
 ani.save('Brick/animation.gif', writer=writer)
 show()
-
-
-
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import mpl_toolkits.mplot3d.axes3d as p3
-# import matplotlib.animation as animation
-#
-#
-# ###############################################################################
-# # Create helix:
-# def get_pos(n):
-#     theta_max = 8 * np.pi
-#     theta = np.linspace(0, theta_max, n)
-#     x, y, z = theta, np.sin(theta), np.cos(theta)
-#     helix = np.vstack((x, y, z))
-#
-#     return helix
-#
-#
-# # Update AUV position for plotting:
-# def update_auv(num, dataLines, lines) :
-#     for line, data in zip(lines, dataLines) :
-#         line.set_data(data[0:2, num-1:num])
-#         line.set_3d_properties(data[2,num-1:num])
-#     return lines
-#
-#
-# # Update trajectory for plotting:
-# def update_trj(num, dataLines, lines) :
-#     for line, data in zip(lines, dataLines) :
-#         line.set_data(data[0:2, :num])
-#         line.set_3d_properties(data[2,:num])
-#     return lines
-# ###############################################################################
-#
-#
-# # Attach 3D axis to the figure
-# fig = plt.figure()
-# ax = p3.Axes3D(fig)
-#
-# # Define no. data points and create helix:
-# n = 100
-# data = [get_pos(n)]
-#
-# # Create line objects:
-# auv = [ax.plot(data[0][0,0:1], data[0][1,0:1], data[0][2,0:1], 'ro')[0]]
-# trj = [ax.plot(data[0][0,0:1], data[0][1,0:1], data[0][2,0:1])[0]]
-#
-# # Setthe axes properties
-# ax.set_xlim3d([0.0, 8*np.pi])
-# ax.set_xlabel('X')
-#
-# ax.set_ylim3d([-1.0, 1.0])
-# ax.set_ylabel('Y')
-#
-# ax.set_zlim3d([-1.0, 1.0])
-# ax.set_zlabel('Z')
-#
-#
-# # Creating the Animation object
-# ani_auv = animation.FuncAnimation(fig, update_auv, n, fargs=(data, auv),
-#                               interval=50, blit=False) #repeat=False,
-# ani_trj = animation.FuncAnimation(fig, update_trj, n, fargs=(data, trj),
-#                               interval=50, blit=False) #repeat=False,
-# plt.show()
-
-# from mpl_toolkits.mplot3d import Axes3D
-# x = []
-# y = []
-# z = []
-# fig = figure()
-# ax = fig.add_subplot(projection='3d')
-# for i in range(5):
-#     x.append(i)
-#     y.append(i)
-#     z.append(i)
-#
-#     # Mention x and y limits to define their range
-#     xlim(0, 5)
-#     ylim(0, 5)
-#
-#
-#     # Ploting graph
-#     ax.plot(x, y, z,color='green')
-#     pause(0.01)
-#
-# show()
 
 
 
