@@ -223,7 +223,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     t_star = np.linspace(0, dT, 10)
     per = 3
     state_prev = state_init
-    states, quats, angles = [], [], []
+    states, quats, quats_d, angles = [], [], [], []
     U_pos, U_att = [], []
     for i in range(len(t)):
         t_curr = t[i]
@@ -235,6 +235,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
         state_prev = state[-1]
 
         quats.append(state_prev[6:10])
+        quats_d.append(quat_d)
         # d_w.append(state_prev[4:7])
         states.append(state_prev)
         angle = Rotation.from_quat(state_prev[6:10])
@@ -244,6 +245,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
 
     states = np.array(states)
     quats = np.array(quats)
+    quats_d = np.array(quats_d)
     angles = np.array(angles)
     U_pos = np.array(U_pos)
     U_att = np.array(U_att)
@@ -251,8 +253,11 @@ def simulate_system(state_init, frequency, t_0, t_final):
 
     figure()
     text = ['$q_0$', '$q_1$', '$q_2$', '$q_3$']
+    colors = ['r', 'g', 'b', 'k']
+    styles = ['-', '--', ':', '-.']
     for i in range(4):
-        plot(t, quats[:,i], linewidth=2.0, label=str(text[i]))
+        plot(t, quats[:,i], color=str(colors[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
+        plot(t, quats_d[:, i], color=str(colors[i]), linewidth=1.0, linestyle=':')
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
     ylabel(r'Quaternion ${q}$')
@@ -405,8 +410,8 @@ def simulate_system(state_init, frequency, t_0, t_final):
     ani = animation.FuncAnimation(fig, animate, frames=np.shape(data)[1],
                                     interval=dT) #repeat=False,
                                     
-    writer = animation.PillowWriter(fps=100)
-    ani.save('Brick/animation.gif', writer=writer)
+    # writer = animation.PillowWriter(fps=100)
+    # ani.save('Brick/animation.gif', writer=writer)
     show()
 
 
