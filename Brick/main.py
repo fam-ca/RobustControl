@@ -88,7 +88,6 @@ def desired_trajectory(t, traj_params, period):
     return p_d, v_d, q_d, angVel_d
 
 
-
 def vect2quat(v):
     return np.concatenate([[0], v])
 
@@ -119,12 +118,6 @@ def euler2quat(roll, pitch, yaw):
         qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
         return [qw, qx, qy, qz]
 
-# qu = [1.5, -1, 0, -7]
-# qu = qu/np.linalg.norm(qu)
-# print(qu)
-# sample = quat2euler_angles(qu)
-# print(euler2quat(sample[0], sample[1], sample[2]))
-
 
 def system(state, t, u):
     m, g = system_params['m'], system_params['g']
@@ -136,6 +129,7 @@ def system(state, t, u):
 
     # equation 1 dp=dp
     dr = v
+
     # equation 2
     u_v = u[0]
     dv = u_v - np.array([0, 0, -g])
@@ -154,42 +148,45 @@ def system(state, t, u):
     return dstate
 
 
-def control(state, t, r_d, v_d, q_d, w_d):
-    m, g = system_params['m'], system_params['g']
-    r_actual, v_actual, q_actual, w_actual = state[:3], state[3:6], state[6:10], state[10:13]
-
-    K_pos = control_params['K_pos']
-    K_att = control_params['K_att']
-
-    theta_actual = 2 * ln_quat(q_actual)
-    theta_d = 2 * ln_quat(q_d)
-    x_att_err = np.concatenate([theta_actual - theta_d, w_actual - w_d])
-    u_att = -K_att @ x_att_err
-
-    x_pos_err = np.concatenate([r_actual-r_d, v_actual - v_d])
-    u_pos = -K_pos @ x_pos_err + np.array([0, 0, -g])
-
-    return u_pos, u_att
-
-
 # def control(state, t, r_d, v_d, q_d, w_d):
-#     m = system_params['m']
-
-#     K_p = control_params['K1']
-#     K_d = control_params['K2']
-
+#     m, g = system_params['m'], system_params['g']
 #     r_actual, v_actual, q_actual, w_actual = state[:3], state[3:6], state[6:10], state[10:13]
+
+#     K_pos = control_params['K_pos']
+#     K_att = control_params['K_att']
+
 #     theta_actual = 2 * ln_quat(q_actual)
 #     theta_d = 2 * ln_quat(q_d)
+#     x_att_err = np.concatenate([theta_actual - theta_d, w_actual - w_d])
+#     u_att = -K_att @ x_att_err
+
+#     x_pos_err = np.concatenate([r_actual-r_d, v_actual - v_d])
+#     u_pos = -K_pos @ x_pos_err + np.array([0, 0, -g])
+
+#     return u_pos, u_att
+
+
+def control(state, t, r_d, v_d, q_d, w_d):
+    m = system_params['m']
+
+    K_p = control_params['K1']
+    K_d = control_params['K2']
+
+    r_actual, v_actual, q_actual, w_actual = state[:3], state[3:6], state[6:10], state[10:13]
     
-#     params = p(system_params)
+    params = p(system_params)
 
-#     u_w = -K_p @ (theta_actual - theta_d) - K_d @ (w_actual - w_d)
-#     u_v = -K_p @ (r_actual - r_d) - K_d @ (v_actual - v_d)
-#     Y = regressor(w_actual, u_w, u_v)
+    q_err = quaternion_product(q_d, conjugate(q_actual))
+    if q_err[0]<0:
+        q_err_axis = -np.array(q_err[1:])
+    else:
+        q_err_axis = np.array(q_err[1:])
 
-#     u = Y @ params
-#     return m ** (-1) * u[:3], u[3:]
+    u_w = -K_p @ q_err_axis + K_d @ (w_d - w_actual)
+    u_v = K_p @ (r_d - r_actual) + K_d @ (v_d - v_actual)
+    Y = regressor(w_actual, u_w, u_v)
+    u = Y @ params
+    return m ** (-1) * u[:3], u[3:]
 
 
 def L(w):
@@ -226,7 +223,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     t_star = np.linspace(0, dT, 10)
     per = 3
     state_prev = state_init
-    states, angles = [], []
+    states, quats, angles = [], [], []
     U_pos, U_att = [], []
     for i in range(len(t)):
         t_curr = t[i]
@@ -237,7 +234,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
                            args=(u,))
         state_prev = state[-1]
 
-        # quats.append(state_prev[6:10])
+        quats.append(state_prev[6:10])
         # d_w.append(state_prev[4:7])
         states.append(state_prev)
         angle = Rotation.from_quat(state_prev[6:10])
@@ -246,15 +243,16 @@ def simulate_system(state_init, frequency, t_0, t_final):
         U_att.append(u[1])
 
     states = np.array(states)
-
+    quats = np.array(quats)
     angles = np.array(angles)
     U_pos = np.array(U_pos)
     U_att = np.array(U_att)
 
+
     figure()
     text = ['$q_0$', '$q_1$', '$q_2$', '$q_3$']
     for i in range(4):
-        plot(t, states[:,i+6], linewidth=2.0, label=str(text[i]))
+        plot(t, quats[:,i], linewidth=2.0, label=str(text[i]))
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
     ylabel(r'Quaternion ${q}$')
@@ -407,13 +405,13 @@ def simulate_system(state_init, frequency, t_0, t_final):
     ani = animation.FuncAnimation(fig, animate, frames=np.shape(data)[1],
                                     interval=dT) #repeat=False,
                                     
-    # writer = animation.PillowWriter(fps=100)
-    # ani.save('Brick/animation.gif', writer=writer)
+    writer = animation.PillowWriter(fps=100)
+    ani.save('Brick/animation.gif', writer=writer)
     show()
 
 
 t0 = 0
-tf = 5.0
+tf = 10.0
 freq = 100
 dT = 1/freq
 
@@ -433,8 +431,9 @@ I = np.array([[Ixx, Ixy, Ixz],
               [Iyx, Iyy, Iyz],
               [Izx, Izy, Izz]])
 
-K1 = np.diag([3, 3, 3])
+K1 = np.diag([15, 15, 15])
 K2 = np.diag([5, 5, 5])
+
 K_pos = np.block([K1, K1])
 K_att = np.block([K2, K2])
 
@@ -469,10 +468,9 @@ control_params = {'K1': K1, 'K2': K2,
 # print(rot.as_euler('xyz'))
 
 quat_0 = Rotation.from_euler('xyz', [0, 0, 0], degrees=True).as_quat()
-quat_d = Rotation.from_euler('xyz', [0, 90, 0], degrees=True).as_quat()
-
+quat_d = Rotation.from_euler('xyz', [-20, 30, 30], degrees=True).as_quat()
 print(quat_0, quat_d)
-# quat_0 = quat_0/np.linalg.norm(quat_0)
+
 
 # initial position, velocity, quaternion, angular velocity
 x0 = [1., 2.0, 0.0,
@@ -481,7 +479,7 @@ x0 = [1., 2.0, 0.0,
       0., 0., 0.]
 x0[6:10] = quat_0
 
-trajectory_params = {'state_d': [1, 2., 1,
+trajectory_params = {'state_d': [0.5, 2.5, 1,
                                  0., 0., 0.,
                                  quat_d[0], quat_d[1], quat_d[2], quat_d[3],
                                  0., 0., 0.]}
