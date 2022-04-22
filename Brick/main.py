@@ -64,59 +64,52 @@ def system(state, t, Q):
 #     return u_pos, u_att
 
 
-def control(state, t, r_d, v_d, q_d, w_d):
-    m = system_params['m']
-
-    K_p = control_params['K1']
-    K_d = control_params['K2']
-
+def control(state, t, r_d, v_d, q_d, w_d, params):
+    Kp_w = control_params['K1']
+    Kd_w = control_params['K2']
+    
+    Kp_v = control_params['K3']
+    Kd_v = control_params['K4']
+    
     u_min = control_params['u_min']
     u_max = control_params['u_max']
 
     r_actual, v_actual, q_actual, w_actual = state[:3], state[3:6], state[6:10], state[10:13]
-    dr, dv = r_d - r_actual, v_d - v_actual
+    # dr, dv = r_d - r_actual, v_d - v_actual
 
-    params = p(system_params)
-    q_star = dv + K_p @ dr
+    param_vector = p(params)
+    # q_star = dv + K_p @ dr
     
     q_err = quaternion_product(q_d, conjugate(q_actual))
-    if q_err[0]<0:
+    if q_err[0] < 0:
         q_err_axis = np.array(q_err[1:])
     else:
         q_err_axis = -np.array(q_err[1:])
 
-    a_w = K_p @ q_err_axis + K_d @ (w_d - w_actual)
-    a_v = K_p @ (r_d - r_actual) + 5*K_d @ (v_d - v_actual)
+    a_w = Kp_w @ q_err_axis + Kd_w @ (w_d - w_actual)
+    a_v = Kp_v @ (r_d - r_actual) + Kd_v @ (v_d - v_actual)
     Y = regressor(w_actual, a_w, a_v)
 
-    Q, F = qp_solve(Y, state, params, q_star, u_min, u_max)
+    Q, F = qp_solve(Y, state, param_vector, u_min, u_max)
     return Q[:3], Q[3:], F
 
     # Q = Y @ params
     # return Q[:3], Q[3:]
 
 
-def qp_solve(Y, state, param_vector, q_star, u_min, u_max):
+def qp_solve(Y, state, param_vector, u_min, u_max):
     Bm = B(state)
     Vm = V()
-    alpha = 0.00001
-    P = Bm.T @ Bm + alpha * np.eye(12)
-    K = control_params['K2']
-    # K = np.vstack([K, K])
-    Q = Y @ param_vector # + K @ q_star
-    q = (-2) * Q.T @ Bm
-    # q = (-2) * param_vector.T @ Y.T @ Bm @ Vm
+    alpha = 0.0001
+    P = Bm.T @ Bm + alpha * np.eye(8)
+    q = (-2) * param_vector.T @ Y.T @ Bm
 
-    # G = np.vstack([1. * np.eye(4), -1.0 * np.eye(4)])
-    G = np.zeros((8,12))
-    G[0, 2] = G[1, 5] = G[2, 8] = G[3, 11] = 1
-    G[4, 2] = G[5, 5] = G[6, 8] = G[7, 11] = -1
-    h = np.array([u_max, u_max, u_max, u_max, -u_min, -u_min, -u_min, -u_min]).reshape((8,))
+    I8 = np.eye(8)
+    G = np.vstack([I8, -I8])
+    h = np.hstack([np.tile([u_max], 8), np.tile([-u_min], 8)])
+
     A = None
     b = None
-    # A = np.zeros((8, 12))
-    # A[:2, :2] = A[2:4, 3:5] = A[4:6, 6:8] = A[6:, 9:11] = np.eye(2)
-    # b = np.zeros(8)
 
     F = solve_qp(P, q, G, h, A, b)
     # print(F)
@@ -134,74 +127,68 @@ def qp_solve(Y, state, param_vector, q_star, u_min, u_max):
 # print(A)
 def B(state):
 
-    # print(matrix_heavy)
-    # print(matrix_vectored)
-
-
     l = system_params['length']
     w = system_params['width']
 
     rc = state[:3]
-    q = state[6:10]
+    q  = state[6:10]
 
-    p1, p2, p3, p4 = get_points(rc, q, l, w)
+    # p1, p2, p3, p4 = get_points(rc, q, l, w)
 
-    s1 = p1 - rc
-    s2 = p2 - rc
-    s3 = p3 - rc
-    s4 = p4 - rc
+    # s1 = p1 - rc
+    # s2 = p2 - rc
+    # s3 = p3 - rc
+    # s4 = p4 - rc
 
     R_trans = quaternion_rotation_matrix(q).transpose()
     
-    B1 = np.hstack([R_trans, R_trans, R_trans, R_trans]) #np.tile(R_trans, (1,4))
-    B2 = (-1) * np.hstack([skew(s1), skew(s2), skew(s3), skew(s4)])
-    B = np.vstack([B1, B2])
-    # positions_vectored = array([[0.156, 0.111, 0.085],
-    #                             [0.156, -0.111, 0.085],
-    #                             [-0.156, 0.111, 0.085],
-    #                             [-0.156, -0.111, 0.085],
-    #                             [0.0, 0.111, 0.],
-    #                             [0.0, -0.111, 0.]]).T
+    # B1 = np.hstack([R_trans, R_trans, R_trans, R_trans]) #np.tile(R_trans, (1,4))
+    # B2 = (-1) * np.hstack([skew(s1), skew(s2), skew(s3), skew(s4)])
+    # B = np.vstack([B1, B2])
+    positions_vectored = array([[0.156, 0.111, 0.085],
+                                [0.156, -0.111, 0.085],
+                                [-0.156, 0.111, 0.085],
+                                [-0.156, -0.111, 0.085],
+                                [0.0, 0.111, 0.],
+                                [0.0, -0.111, 0.]]).T
 
 
-    # positions_heavy = array([[0.156, 0.111, 0.085],
-    #                         [0.156, -0.111, 0.085],
-    #                         [-0.156, 0.111, 0.085],
-    #                         [-0.156, -0.111, 0.085],
-    #                         [0.120, 0.218, 0.],
-    #                         [0.120, -0.218, 0.],
-    #                         [-0.120, 0.218, 0.],
-    #                         [-0.120, -0.218, 0.]]).T
+    positions_heavy = array([[0.156, 0.111, 0.085],
+                            [0.156, -0.111, 0.085],
+                            [-0.156, 0.111, 0.085],
+                            [-0.156, -0.111, 0.085],
+                            [0.120, 0.218, 0.],
+                            [0.120, -0.218, 0.],
+                            [-0.120, 0.218, 0.],
+                            [-0.120, -0.218, 0.]]).T
 
-    # # positions of thrusters
-    # alphas = array([pi/4, -pi/4,  -pi/4, pi/4])
-    # directions = array([1, 1, -1, -1, -1, 1, 1, -1])
+    # positions of thrusters
+    alphas = array([pi/4, -pi/4,  -pi/4, pi/4])
+    directions = array([1, 1, -1, -1, -1, 1, 1, -1])
 
-    # # matrix_vectored
-    # matrix_vectored = zeros((6, 6))
-    # matrix_heavy = zeros((6, 8))
-    # normal_vectors = zeros((3, 8))
+    # matrix_vectored
+    matrix_vectored = zeros((6, 6))
+    matrix_heavy = zeros((6, 8))
+    normal_vectors = zeros((3, 8))
 
-    # I = np.eye(3)
-    # for thruster in range(8):
-    #     if thruster < 4:
-    #         normal_vectors[:, thruster] = directions[thruster] * array([cos(alphas[thruster]),
-    #                                                                 -sin(alphas[thruster]),
-    #                                                                 0])
-    #     else:
-    #         normal_vectors[:, thruster] = directions[thruster] * array([0, 0, 1])
+    for thruster in range(8):
+        if thruster < 4:
+            normal_vectors[:, thruster] = directions[thruster] * array([cos(alphas[thruster]),
+                                                                    -sin(alphas[thruster]),
+                                                                    0])
+        else:
+            normal_vectors[:, thruster] = directions[thruster] * array([0, 0, 1])
 
-    #     matrix_heavy[:3, thruster] = R_trans @ normal_vectors[:, thruster]
-    #     matrix_heavy[3:, thruster] = cross(positions_heavy[:, thruster],
-    #                                     normal_vectors[:, thruster])
+        matrix_heavy[:3, thruster] = R_trans @ normal_vectors[:, thruster]
+        matrix_heavy[3:, thruster] = cross(positions_heavy[:, thruster],
+                                        normal_vectors[:, thruster])
 
-    #     if thruster < 6:
-    #         matrix_vectored[:3, thruster] = R_trans @ normal_vectors[:, thruster]
-    #         matrix_vectored[3:, thruster] = cross(positions_vectored[:, thruster],
-    #                                             normal_vectors[:, thruster])
+        if thruster < 6:
+            matrix_vectored[:3, thruster] = R_trans @ normal_vectors[:, thruster]
+            matrix_vectored[3:, thruster] = cross(positions_vectored[:, thruster],
+                                                normal_vectors[:, thruster])
 
-
-    return B
+    return matrix_heavy
 
 
 def V():
@@ -230,15 +217,11 @@ def regressor(w, dw, dv):
     return Y
 
 
-def p(sys_params):
-    m = sys_params['m']
-    Ixx = sys_params['Ixx']
-    Iyy = sys_params['Iyy']
-    Izz = sys_params['Izz']
-    Ixy = sys_params['Ixy']
-    Ixz = sys_params['Ixz']
-    Iyz = sys_params['Iyz']
-    return np.array([m, Ixx, Iyy, Izz, Ixy, Ixz, Iyz])
+def p(params):
+    m = params['m']
+    I = params['I']
+    
+    return np.array([m, I[0][0], I[1][1], I[2][2], I[0][1], I[0][2], I[1][2]])
 
 
 def get_points(rc, q, length, width):
@@ -266,36 +249,43 @@ def simulate_system(state_init, frequency, t_0, t_final):
     t = np.arange(t_0, t_final, dT)
     t_star = np.linspace(0, dT, 10)
     per = 3
-    state_prev = state_init
-    states, quats, quats_d, angles = [], [], [], []
+    state_prev = state_prev_modified = state_init
+    states, states_mod, quats_d, angles = [], [], [], []
+    poss_d = []
     U_pos, U_att = [], []
     Fs = []
     for i in range(len(t)):
         t_curr = t[i]
         pos_d, vel_d, quat_d, angVel_d = desired_trajectory(t_curr, trajectory_params, per)
-        u = control(state_prev, t_curr, pos_d, vel_d, quat_d, angVel_d)
 
-        state = odeint(system, state_prev, t_star,
-                           args=(u, ))
+        u_real = control(state_prev, t_curr, pos_d, vel_d, quat_d, angVel_d, system_params)
+        u_modified = control(state_prev_modified, t_curr, pos_d, vel_d, quat_d, angVel_d, control_params)
 
+        state = odeint(system, state_prev, t_star, args=(u_real, ))
+        state_modified = odeint(system, state_prev_modified, t_star, args=(u_modified, ))
 
         state_prev = state[-1]
+        state_prev_modified = state_modified[-1]
+
+        quats_d.append(quat_d)
+        poss_d.append(pos_d)
+
+        states.append(state_prev)
+        states_mod.append(state_prev_modified)
 
         quat_cur = state_prev[6:10]
-        quats.append(state_prev[6:10])
-        quats_d.append(quat_d)
-        states.append(state_prev)
-
         quat_ = np.array([quat_cur[3], quat_cur[0], quat_cur[1], quat_cur[2]])
         angle = Rotation.from_quat(quat_)
         angles.append(angle.as_euler('xyz'))
-        U_pos.append(u[0])
-        U_att.append(u[1])
-        Fs.append(u[2])
 
-    states = np.array(states)
-    quats = np.array(quats)
+        U_pos.append(u_real[0])
+        U_att.append(u_real[1])
+        Fs.append(u_real[2])  
+
     quats_d = np.array(quats_d)
+    poss_d = np.array(poss_d)
+    states = np.array(states)
+    states_mod = np.array(states_mod)
     angles = np.array(angles)
     U_pos = np.array(U_pos)
     U_att = np.array(U_att)
@@ -304,9 +294,10 @@ def simulate_system(state_init, frequency, t_0, t_final):
     figure()
     text = ['$q_0$', '$q_1$', '$q_2$', '$q_3$']
     colors = ['r', 'g', 'b', 'k']
-    styles = ['-', '--', ':', '-.']
+    styles = [':', '--', '-', '-.']
     for i in range(4):
-        plot(t, quats[:,i], color=str(colors[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
+        plot(t, states[:,i+6], color=str(colors[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
+        # plot(t, states_mod[:,i+6], linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
         plot(t, quats_d[:, i], color=str(colors[i]), linewidth=1.0, linestyle=':')
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
@@ -331,9 +322,15 @@ def simulate_system(state_init, frequency, t_0, t_final):
 
 
     figure()
-    text = ['$x$', '$y$', '$z$']
+    text = ['$x_{real}$', '$y_{real}$', '$z_{real}$']
+    text1 = ['$x$', '$y$', '$z$']
+    text2 = ['$x_{des}$', '$y_{des}$', '$z_{des}$']
+    colors1 = ['orange', 'y', 'k']
+    styles = ['-.', '--', '-']
     for i in range(3):
-        plot(t, states[:,i], linewidth=2.0, label=str(text[i]))
+        plot(t, states[:, i], color=str(colors[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
+        plot(t, states_mod[:, i], color=str(colors1[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text1[i]))
+        plot(t, poss_d[:, i], color=str(colors[i]), linewidth=1.5, linestyle=':', label=str(text2[i]))
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
     ylabel(r'Position ${p}$')
@@ -382,15 +379,15 @@ def simulate_system(state_init, frequency, t_0, t_final):
 
 
     figure()
-    text = ['$F_{x}}$', '$F_{y}}$', '$F_{z}}$']
-    for i in range(3):
+    text = ['$F_{1}}$', '$F_{2}}$', '$F_{3}}$', '$F_{4}}$', '$F_{5}}$', '$F_{6}}$', '$F_{7}}$', '$F_{8}}$']
+    for i in range(8):
         plot(t, Fs[:, i], linewidth=2.0, label=str(text[i]))
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
     ylabel(r'Force ${F}$')
     xlabel(r'Time $t$ (s)')
     legend(loc='lower right')
-    title('Force 1')
+    title('Forces')
     savefig('Brick/force.png')
 
 
@@ -438,7 +435,9 @@ def simulate_system(state_init, frequency, t_0, t_final):
                 ]
 
         ax.scatter3D(data[0, 0], data[1, 0], data[2, 0], color='b')
-        ax.scatter3D(data[0, -1], data[1, -1], data[2, -1], color='r')
+
+        state_d = trajectory_params['state_d']
+        ax.scatter3D(state_d[0], state_d[1], state_d[2], color='r')
 
         ax.scatter3D(rc[0], rc[1], rc[2], color='b', alpha=.50)
         ax.scatter3D(Z[:, 0], Z[:, 1], Z[:, 2], color='b', alpha=.50)
@@ -470,49 +469,53 @@ t0 = 0
 tf = 10.0
 freq = 100
 dT = 1/freq
-
-# Brick parameters
-length = 0.8
-width = 0.4
-height = 0.1
-m = 1.3
-Ixx = Iyy = 0.5  # 6.5 * 10**(-4)
-Izz = 0.4  # 1.2*10**(-3)
-Ixy = Iyx = 0.001
-Ixz = Izx = 0.001
-Iyz = Izy = 0.001
 g = 9.81
 
-u_min = -5.0
-u_max = 5.0
+# Brick parameters
+length = 0.5
+width = 0.5
+height = 0.2
 
-I = np.array([[Ixx, Ixy, Ixz],
-              [Iyx, Iyy, Iyz],
-              [Izx, Izy, Izz]])
+m_real = 12
 
-K1 = np.diag([15, 15, 15])
-K2 = np.diag([5, 5, 5])
+mat = np.array([[(width/2) ** 2, 0.001, 0.001],
+                    [0.001, (length/2) ** 2, 0.001],
+                    [0.001, 0.001, (length/2) ** 2 + (width/2) ** 2]]) / 3
 
-K_pos = np.block([K1, K1])
-K_att = np.block([K2, K2])
+I_real = m_real * mat
 
 system_params = {'length': length,
                  'width': width,
                  'height': height,
-                 'm': m,
-                 'I': I,
-                 'Ixx': Ixx,
-                 'Iyy': Iyy,
-                 'Izz': Izz,
-                 'Ixy': Ixy,
-                 'Ixz': Ixz,
-                 'Iyz': Iyz,
+                 'm': m_real,
+                 'I': I_real,
                  'g': g,
                  }
 
+
+m_modified = m_real * 0.8
+I_modified = m_modified * mat
+
+u_min = -35.0
+u_max = 35.0
+
+# gains for orientational components: Kp_w, Kd_w
+K1 = np.diag([15, 15, 15])
+K2 = np.diag([10, 10, 10])
+
+# gains for positional components: Kp_v, Kd_v
+K3 = np.diag([15, 15, 40])
+K4 = np.diag([25, 25, 25])
+
+K_pos = np.block([K1, K1])
+K_att = np.block([K2, K2])
+
 control_params = {'K1': K1, 'K2': K2,
+                  'K3': K3, 'K4': K4,
                   'K_pos': K_pos, 'K_att': K_att,
                   'u_min': u_min, 'u_max': u_max,
+                  'm': m_modified,
+                  'I': I_modified,
                   }
 
 
@@ -527,22 +530,20 @@ control_params = {'K1': K1, 'K2': K2,
 # # Convert the rotation to Euler angles given the axes of rotation
 # print(rot.as_euler('xyz'))
 
-quat_0 = Rotation.from_euler('xyz', [10, 0, 0], degrees=True).as_quat()
+quat_0 = Rotation.from_euler('xyz', [10, 10, 5], degrees=True).as_quat()
 quat_d = Rotation.from_euler('xyz', [0, 0, 0], degrees=True).as_quat()
 print(quat_0, quat_d)
 
 
 # initial position, velocity, quaternion, angular velocity
-x0 = [0., 2.0, 1.0,
+x0 = [0., 1.0, 0.0,
       0, 0, 0,
       quat_0[3], quat_0[0], quat_0[1], quat_0[2], 
       0., 0., 0.]
-# x0[6:10] = quat_0
 
-trajectory_params = {'state_d': [0.5, 1.0, 1.5,
+trajectory_params = {'state_d': [0.3, 0.7, 0.5,
                                  0., 0., 0.,
                                  quat_d[3], quat_d[0], quat_d[1], quat_d[2], 
-                                # quat_0[0], quat_0[1], quat_0[2], quat_0[3],
                                  0., 0., 0.]}
 
 simulate_system(state_init=x0, frequency=freq, t_0=t0, t_final=tf)
