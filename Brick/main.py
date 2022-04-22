@@ -29,6 +29,7 @@ def system(state, t, Q):
 
     # equation 2
     Q_v = Q[0]
+    # print(Q_v)
     dv = m ** (-1) * Q_v - np.array([0, 0, -g])
 
     # equation 3
@@ -88,6 +89,7 @@ def control(state, t, r_d, v_d, q_d, w_d, params):
 
     a_w = Kp_w @ q_err_axis + Kd_w @ (w_d - w_actual)
     a_v = Kp_v @ (r_d - r_actual) + Kd_v @ (v_d - v_actual)
+    print(a_v)
     Y = regressor(w_actual, a_w, a_v)
 
     Q, F = qp_solve(Y, state, param_vector, u_min, u_max)
@@ -102,7 +104,7 @@ def qp_solve(Y, state, param_vector, u_min, u_max):
     Vm = V()
     alpha = 0.0001
     P = Bm.T @ Bm + alpha * np.eye(8)
-    q = (-2) * param_vector.T @ Y.T @ Bm
+    q = (-1) * param_vector.T @ Y.T @ Bm
 
     I8 = np.eye(8)
     G = np.vstack([I8, -I8])
@@ -113,7 +115,7 @@ def qp_solve(Y, state, param_vector, u_min, u_max):
 
     F = solve_qp(P, q, G, h, A, b)
     # print(F)
-
+    # F = np.linalg.pinv(Bm) @ Y @ param_vector
     Qm = Bm @ F
     return Qm, F
 
@@ -247,12 +249,12 @@ def get_points(rc, q, length, width):
 def simulate_system(state_init, frequency, t_0, t_final):
     dT = 1/frequency
     t = np.arange(t_0, t_final, dT)
-    t_star = np.linspace(0, dT, 10)
+    t_star = np.linspace(0, dT, 5)
     per = 3
     state_prev = state_prev_modified = state_init
     states, states_mod, quats_d, angles = [], [], [], []
     poss_d = []
-    U_pos, U_att = [], []
+    U_pos, U_att, U_pos_mod = [], [], []
     Fs = []
     for i in range(len(t)):
         t_curr = t[i]
@@ -279,6 +281,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
         angles.append(angle.as_euler('xyz'))
 
         U_pos.append(u_real[0])
+        U_pos_mod.append(u_modified[0])
         U_att.append(u_real[1])
         Fs.append(u_real[2])  
 
@@ -288,8 +291,11 @@ def simulate_system(state_init, frequency, t_0, t_final):
     states_mod = np.array(states_mod)
     angles = np.array(angles)
     U_pos = np.array(U_pos)
+    U_pos_mod = np.array(U_pos_mod)
     U_att = np.array(U_att)
     Fs = np.array(Fs)
+    print(U_pos[-1])
+    print(U_pos_mod[-1])
 
     figure()
     text = ['$q_0$', '$q_1$', '$q_2$', '$q_3$']
@@ -297,7 +303,7 @@ def simulate_system(state_init, frequency, t_0, t_final):
     styles = [':', '--', '-', '-.']
     for i in range(4):
         plot(t, states[:,i+6], color=str(colors[i]), linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
-        # plot(t, states_mod[:,i+6], linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
+        plot(t, states_mod[:,i+6], linewidth=2.0, linestyle=str(styles[i]), label=str(text[i]))
         plot(t, quats_d[:, i], color=str(colors[i]), linewidth=1.0, linestyle=':')
     grid(color='black', linestyle='--', linewidth=0.7, alpha=0.7)
     xlim([t_0, t_final])
@@ -493,11 +499,11 @@ system_params = {'length': length,
                  }
 
 
-m_modified = m_real * 0.8
+m_modified = m_real * 0.9
 I_modified = m_modified * mat
 
-u_min = -35.0
-u_max = 35.0
+u_min = -100.0
+u_max = 100.0
 
 # gains for orientational components: Kp_w, Kd_w
 K1 = np.diag([15, 15, 15])
