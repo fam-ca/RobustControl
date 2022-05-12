@@ -50,7 +50,7 @@ def system(x, t, u, sys_params):
     q, dq = x[:3], x[3:6]
     Dm = D()
     hm = h()
-    ddq = np.dot(np.linalg.inv(Dm), u - 0.7 * hm)
+    ddq = np.dot(np.linalg.inv(Dm), u - 0.7* hm)
     dx = np.concatenate([dq, ddq])
     return dx
 
@@ -58,8 +58,9 @@ def system(x, t, u, sys_params):
 def B(x):
     r = x[:3]
     d = system_params['d']
-    c1 = (Rz(r[2]) @ Tx(r[0] - d / 2) @ Ty(r[1]))[0:3, 3]
-    c2 = (Rz(r[2]) @ Tx(r[0] + d / 2) @ Ty(r[1]))[0:3, 3]
+    Hc = Rz(r[2]) @ Tx(r[0]) @ Ty(r[1])
+    c1 = ( Hc @ Tx(- d / 2))[0:3, 3]
+    c2 = ( Hc @ Tx( d / 2))[0:3, 3]
     s1 = c1 - r
     s2 = c2 - r
     # s1x = s1[0]
@@ -70,61 +71,64 @@ def B(x):
     return B
 
 
-def qp_solve(Y, x, q_star, p, f_min, f_max, K, F_prev):
+def qp_solve(Y, x, q_star, p, f_min, f_max, K, F_prev, dp_prev):
     z = np.dot(Y.T, q_star)  # 2x1
-    gamma11 = 3.0
-    gamma12 = 3.0
-    gamma21 = 0.  # regulates smoothness of the force plot
+    gamma11 = 1.
+    gamma12 = 1.
+    gamma21 = 1.8  # regulates smoothness of the force plot
     I = np.array([gamma11, gamma11, gamma11, gamma11, gamma11, gamma12])
-    E = np.array([gamma21, gamma21, gamma21, gamma21, 0., 0.])
-    M = np.append(F_prev, [0, 0])
+    E = np.array([gamma21, gamma21, gamma21, gamma21, 1., 1.])
+    M = np.hstack([F_prev, [0, 0]])
     Bm = B(x)
 
     Am = np.hstack([Bm, -Y])
 
-    P = .5 * np.dot(Am.T, Am) + np.diag(I) + np.diag(E)  # gamma*np.eye(6)  # this is a positive definite matrix
+    P = .5 * np.dot(Am.T, Am) + np.diag(I) + np.diag(E) # this is a positive definite matrix
     Q = Y @ p + K @ q_star
     q = -np.dot(Q.T, Am) - M
 
     I = np.eye(4)
 
-    mu = 0.7
+    mu = 0.5
     G = np.array([[-1, -mu, 0, 0, 0, 0],
                   [1, -mu, 0, 0, 0, 0],
                   [0, 0, -1, -mu, 0, 0],
                   [0, 0, 1, -mu, 0, 0],
-                  [0, 0, 0, 0, -z[0], -z[1]]])
+                  [0, 0, 0, 0, -z[0], -z[1]]
+                  ])
 
     # m, J
     p1_min = -0.1
     p1_max = 0.1
 
-    p2_min = -0.005
-    p2_max = 0.005
+    p2_min = -0.05
+    p2_max = 0.05
 
     p1_bounds = [p1_min, p1_max]
     p2_bounds = [p2_min, p2_max]
 
-    zp = linprog(z,
+    zp = -linprog(z,
                  bounds=[p1_bounds, p2_bounds]
                  ).fun  # minimizes
 
-    s = np.array([Bm[2, 1], -Bm[2, 0]])  # s1x, s1y
+    # s = np.array([Bm[2, 1], -Bm[2, 0]])  # s1x, s1y
 
-    h = np.array([0, 0, 0, 0, -zp]).reshape((5,))
-    A = None  # np.array([s[0], s[0], s[1], s[1], 0., 0.])
-    b = None  # np.zeros(6)*0.
+    # h = np.array([0, 0, 0, 0, zp]).reshape((5,))
+    h = np.hstack([np.tile([f_max], 2), np.tile([-f_min], 2), [zp]])
+    # A = None  # np.array([s[0], s[0], s[1], s[1], 0., 0.])
+    # b = None  # np.zeros(6)*0.
 
-    X = solve_qp(P, q, G, h, A, b)  # X = [F, dp].T
+    X = solve_qp(P, q, G, h)  # X = [F, dp].T
     F = X[:4]
+    dp_curr = X[4:6]
     u = Bm @ F
 
-    return u, F
+    return u, F, dp_curr
 
 
 def classic_solve(z):
     eps = 0.9
-    rho = 0.2
+    rho = 0.01
     if norm(z) > eps:
         delta_p = rho * z / norm(z)
     else:
@@ -142,7 +146,7 @@ def compute_opt_control(u0, u_min, u_max):
     return u_star
 
 
-def robust_control(x, t, q_d, dq_d, ddq_d, F_prev, controler_params, method):
+def robust_control(x, t, q_d, dq_d, ddq_d, F_prev, dp_prev, controler_params, method):
     m, g, I = system_params['m'], system_params['g'], system_params['I']
 
     Lambda, K = control_params['K1'], control_params['K2']
@@ -162,8 +166,8 @@ def robust_control(x, t, q_d, dq_d, ddq_d, F_prev, controler_params, method):
     # z = dot(Y.T, q_star)
 
     if method == 'robust_qp':
-        u, F = qp_solve(Y, q, q_star, p, f_min, f_max, K, F_prev)
-        return u, F
+        u, F, dp_curr = qp_solve(Y, q, q_star, p, f_min, f_max, K, F_prev, dp_prev)
+        return u, F, dp_curr
     elif method == 'robust_classic':
         dp = classic_solve(np.dot(Y.T, q_star))
         u = np.dot(Y, p + dp) + np.dot(K, q_star)
@@ -195,6 +199,7 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
     u_min, u_max = controller_params['u_min'], controller_params['u_max']
 
     F_init = np.zeros(4)
+    dp_init = np.zeros(2)
 
     U, U_qp = [], []
     thetas, thetas_qp = [], []
@@ -210,11 +215,12 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
     # classic robust control + torque optimization
     state_prev_opt = state_init
     F_prev = F_init
+    dp_prev = dp_init
     for i in range(len(t)):
         t_curr = t[i]
         theta_d, dtheta_d, ddtheta_d = desired_trajectory(t_curr, trajectory_params, per)
 
-        u, e, de = robust_control(state_prev_opt, t_curr, theta_d, dtheta_d, ddtheta_d, F_prev, control_params,
+        u, e, de = robust_control(state_prev_opt, t_curr, theta_d, dtheta_d, ddtheta_d, F_prev, dp_prev, control_params,
                                   'robust_classic')
         u_opt = compute_opt_control(u, u_min, u_max)
         state_opt = odeint(system, state_prev_opt, t_star,
@@ -236,12 +242,13 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
         t_curr = t[i]
         theta_d, dtheta_d, ddtheta_d = desired_trajectory(t_curr, trajectory_params, per)
 
-        u_qp, F = robust_control(state_prev_qp, t_curr, theta_d, dtheta_d, ddtheta_d, F_prev, control_params,
+        u_qp, F, dp_curr = robust_control(state_prev_qp, t_curr, theta_d, dtheta_d, ddtheta_d, F_prev, dp_prev, control_params,
                                  'robust_qp')
         state_qp = odeint(system, state_prev_qp, t_star,
                           args=(u_qp, system_params,))
         state_prev_qp = state_qp[-1]
         F_prev = F
+        dp_prev = dp_curr
         thetas_qp.append(state_prev_qp[:3])
         # dthetas_qp.append(state_prev_qp[3:6])
         U_qp.append(u_qp)
@@ -304,6 +311,38 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
     legend(loc='upper right')
     savefig('2Ddrone/control.png')
 
+
+    # CONTROL_TO PLOT
+    figure()
+    text = ['$U_x$ Robust + TO', '$U_y$ Robust + TO', r'$U_\alpha$ Robust + TO']
+    color = ['r', 'b', 'g']
+    for i in range(3):
+        step(t, np.array(U)[:, i], color=str(color[i]), linewidth=2., label=str(text[i]))
+
+    grid(color='black', linestyle='--', alpha=0.7)
+    xlim([t_0, t_final])
+
+    ylabel('Control $U$')
+    xlabel('Time $t$ (s)')
+    legend(loc='upper right')
+    savefig('2Ddrone/control_TO.png')
+
+
+    # CONTROL_QP PLOT
+    figure()
+    text = ['$U_x$ Robust_QP', '$U_y$ Robust_QP', r'$U_\alpha$ Robust_QP']
+    for i in range(3):
+        step(t, np.array(U_qp)[:, i], color=str(color[i]), linewidth=2., label=str(text[i]))
+
+    grid(color='black', linestyle='--', alpha=0.7)
+    xlim([t_0, t_final])
+
+    ylabel('Control $U$')
+    xlabel('Time $t$ (s)')
+    legend(loc='upper right')
+    savefig('2Ddrone/control_QP.png')
+
+
     # FORCE CONTROL PLOT
     F1x = np.array(F_qp)[:, 0]
     F1y = np.array(F_qp)[:, 1]
@@ -333,6 +372,27 @@ def simulate_system(state_init, frequency, t_0, t_final, controller_params):
     xlabel('Time $t$ (s)')
     legend()
     savefig('2Ddrone/F2.png')
+
+
+    # POSITION ERROR PLOT
+    figure()
+    plot(t, np.array(theta_d_array)[:, 0] - np.array(thetas)[:, 0], color='r', linewidth=2., linestyle=':', label=label1)
+    plot(t, np.array(theta_d_array)[:, 1] - np.array(thetas)[:, 1], color='b', linewidth=2., linestyle=':', label=label2)
+    print(np.array(theta_d_array)[:, 1] - np.array(thetas)[:, 1])
+
+    plot(t, np.array(theta_d_array)[:, 0] - np.array(thetas_qp)[:, 0], color='r', linewidth=2., label=label3)
+    plot(t, np.array(theta_d_array)[:, 1] - np.array(thetas_qp)[:, 1], color='b', linewidth=2., label=label4)
+    print(np.array(theta_d_array)[:, 1] - np.array(thetas_qp)[:, 1])
+
+    # plot(t, np.array(theta_d_array)[:, 0], color='r', linewidth=2., linestyle='--', label='$x$ desired')
+    # plot(t, np.array(theta_d_array)[:, 1], color='b', linewidth=2., linestyle='--', label='$y$ desired')
+    grid(color='k', linestyle='--', alpha=0.7)
+    xlim([t_0, t_final])
+
+    ylabel('Position error $err$ (m)')
+    xlabel('Time $t$ (s)')
+    legend()
+    savefig('2Ddrone/error_position.png')
 
     # show()
     close('all')
@@ -442,14 +502,14 @@ m = 1.
 I = 0.05
 g = 9.81
 
-K1 = np.diag([3, 8, 3])
+K1 = np.diag([3, 10, 3])
 K2 = np.diag([3, 5, 3])
 
 f_min = -20.
-f_max = 20.
+f_max = 50.
 
 u_min = [-10.0, -10.0, -5.0]
-u_max = [15.0, 15.0, 5.0]
+u_max = [50.0, 50.0, 50.0]
 
 system_params = {'d': d,  # size
                  'm': m,
@@ -460,8 +520,8 @@ control_params = {'K1': K1, 'K2': K2,
                   'u_min': u_min, 'u_max': u_max,
                   'f_min': f_min, 'f_max': f_max}
 
-x0 = [0.1, 0.6, 0.27, 0, 0, 0]
-trajectory_params = {'q_d': [1.2, 0.9, 0., 0., 0., 0.]}  # desired position
+x0 = [0.5, 0.6, 0.27, 0, 0, 0]
+trajectory_params = {'q_d': [1., 0.9, 0., 0., 0., 0.]}  # desired position
 
 simulate_system(state_init=x0, frequency=freq, t_0=t0, t_final=tf,
                 controller_params=control_params)
